@@ -1,55 +1,56 @@
 
-# Container de Debian + Scripts CertWatcher - para envio colecao de chaves e certificados
-#========================================================================================
+# Coletar chaves e certificados do Traefik
+
+    Container de Debian + Scripts CertWatcher para coletar chaves e certificados do Traefik
+
 
 # Objetivo:
-#   - montar container nos diretorios dos certificados obtidos via ACME (Traefik)
-#
-#   - montar em diretorios que contenham certificados wildcard comprados
-#
-#   - criar arquivos de chaves e certificados com objetivo de facilitar o uso
-#     por containers dinamicos e temporarios que precisam de TLS/SSL em portas dinamicas
-#
-#   - obter certificados via API HTTP
-#
-#   - entregar certificados para webhooks
-#
-#
+
+   - montar container nos diretorios dos certificados obtidos via ACME (Traefik)
+
+   - montar em diretorios que contenham certificados wildcard comprados
+
+   - criar arquivos de chaves e certificados com objetivo de facilitar o uso
+     por containers dinamicos e temporarios que precisam de TLS/SSL em portas dinamicas
+
+   - obter certificados via API HTTP
+
+   - entregar certificados para webhooks
+
+
 # Procedimentos
-# * Localiza e exporta certificados do LetsEncrypt
-#   para arquivos (privkey.pem e cert.pem) para uso em containers
-#   dinamicos.
-#
-# * Solucao criada para servidores que usam protocolos
-#   complexos de interagir integrar com Traefik e que precisam de certificados validos
-#
-# * Permite isolar acesso dos containers aos certificados
-#   especificos que eles precisam para evitar vazamento
-#   de chaves privadas
-#
+     * Localiza e exporta certificados do LetsEncrypt
+       para arquivos (privkey.pem e cert.pem) para uso em containers
+       dinamicos.
+
+     * Solucao criada para servidores que usam protocolos
+       complexos de interagir integrar com Traefik e que precisam de certificados validos
+
+     * Permite isolar acesso dos containers aos certificados
+       especificos que eles precisam para evitar vazamento
+       de chaves privadas
+
 # * Variaveis de ambiente exigidas:
-#   # - diretorio dentro do container para exportas os dominios e certificados (domains/FQDN/)
-#   TCERTS_SAVEDIR=/data/certs
-#
-#   # - caminho dentro do container para o acme.json (json de storage de certificados do Traefik)
-#   TCERTS_ACME_JSON=/etc/letsencrypt/acme.json
-#
-#   # - url de webhook para enviar certificados e chaves capturadas
-#   TCERTS_WEBHOOK_URL=""
-#
-#   # - opcional: http header 'Authorization: Bearer xxxxxx', informe o xxxxxxx
-#   TCERTS_WEBHOOK_BEARER=""
-#
-#   # - script de hook responsavel por processar os dominios e enviar
-#   #   para fora (webhook) e demais eventos, por padrao chama um script interno
-#   TCERTS_HOOK_SCRIPT=""
-#
-# * Scripts de boot em /opt/
-#
+    # - diretorio dentro do container para exportas os dominios e certificados (domains/FQDN/)
+    TCERTS_SAVEDIR=/data/certs
+
+    # - caminho dentro do container para o acme.json (json de storage de certificados do Traefik)
+    TCERTS_ACME_JSON=/etc/letsencrypt/acme.json
+
+    # - url de webhook para enviar certificados e chaves capturadas
+    TCERTS_WEBHOOK_URL=""
+
+    # - opcional: http header 'Authorization: Bearer xxxxxx', informe o xxxxxxx
+    TCERTS_WEBHOOK_BEARER=""
+
+    # - script de hook responsavel por processar os dominios e enviar
+    #   para fora (webhook) e demais eventos, por padrao chama um script interno
+    TCERTS_HOOK_SCRIPT=""
+
+    # * Scripts de boot em /opt/
 
 
 # Preparando e instalando
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
     # entre no diretorio que contem o Dockerfile
 
@@ -69,9 +70,8 @@
 
 
 # Teste de construcao
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-#------- debian
+    #------- debian
     # - criar container debian
     docker run -d --name teste -h teste.intranet.br debian:bookworm sleep 99999
 
@@ -83,16 +83,12 @@
     # - iniciar supervisor manualmente
     /opt/entrypoint.sh /opt/acme-json-watcher.py
 
-
-#------- alpine:3.21.3
+    #------- alpine:3.21.3
     docker run -d --name teste -h teste.intranet.br alpine:3.21.3 sleep 99999
     docker exec -it teste ash
 
 
-
-
 # Teste de webhook, enviando certificado auto-assinado do OpenSSL
-#-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
     # Ler arquivo e codificar em base64 continuo
     _base64_inline(){
