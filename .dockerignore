@@ -1,0 +1,22 @@
+# Pre-built binaries — rebuilt inside Docker, not needed in build context
+bin/
+
+# Documentation
+docs/
+
+# Editor / IDE artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Test cache
+*_test.go
+
+# Git metadata
+.git/
+.gitignore

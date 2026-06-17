@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------- #
+# Stage 1: Build
+# ---------------------------------------------------------------------------- #
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /build
+
+# Download dependencies before copying source (layer cache)
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build both binaries as static executables (no CGO, stripped)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -trimpath -o /app/cert-watcher ./cmd/cert-watcher && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -trimpath -o /app/cert-get ./cmd/cert-get
+
+# ---------------------------------------------------------------------------- #
+# Stage 2: Runtime — Distroless (static, no shell, no package manager)
+#
+# gcr.io/distroless/static-debian12 ships only:
+#   - CA certificates  (needed for HTTPS webhook calls)
+#   - /etc/passwd and /etc/group
+#   - timezone data
+# No shell, no libc extras — compatible with CGO_ENABLED=0 static binaries.
+# ---------------------------------------------------------------------------- #
+FROM gcr.io/distroless/static-debian12
+
+COPY --from=builder /app/cert-watcher /app/cert-watcher
+COPY --from=builder /app/cert-get     /app/cert-get
+
+# cert-watcher is the long-running daemon; cert-get is a one-shot CLI utility.
+# Override CMD to run cert-get when needed.
+CMD ["/app/cert-watcher"]

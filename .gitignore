@@ -1,0 +1,40 @@
+# Binários compilados localmente
+/bin/cert-watcher
+/bin/cert-get
+
+# Configs de usuario local
+.claude/settings.local.json
+.env
+sync.sh
+sync-up.sh
+sync-down.sh
+
+# Artefatos de build do Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Cache de testes e cobertura
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Cache do Go
+/vendor/
+
+# macOS
+.DS_Store
+
+# Editores
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Dados de runtime (acme.json e certs em disco — nunca commitar chaves privadas)
+acme.json
+certs/
+*.pem
