@@ -110,13 +110,20 @@ func (r *Reconcile) CloseBus() {
 
 // StartSubscriber subscribes to Redis events using the current bus.
 // It is a no-op when no bus is configured.
+// Each event is dispatched in a goroutine tracked by hookWg so a slow handler
+// (disk I/O, Redis GET, per-FQDN lock contention) cannot block the pub/sub loop
+// and cause go-redis to overflow and discard events (item 003.9).
 func (r *Reconcile) StartSubscriber(ctx context.Context) {
 	bus := r.getBus()
 	if bus == nil {
 		return
 	}
 	bus.Subscribe(ctx, func(fqdn string) {
-		r.HandleRedisEvent(ctx, fqdn)
+		r.hookWg.Add(1)
+		go func() {
+			defer r.hookWg.Done()
+			r.HandleRedisEvent(ctx, fqdn)
+		}()
 	})
 }
 
@@ -254,11 +261,15 @@ func (r *Reconcile) SyncCerts(ctx context.Context) {
 	)
 
 	if r.getBus() != nil {
-		r.SyncRedis(ctx)
+		r.SyncRedis(ctx, updates)
 	}
 }
 
-func (r *Reconcile) SyncRedis(ctx context.Context) {
+// SyncRedis sincroniza certificados com o Redis.
+// pushUpdates != nil: PUSH incremental — só envia os FQDNs efetivamente alterados
+// neste ciclo (chamada a partir de SyncCerts). pushUpdates == nil: PUSH completo —
+// varre todos os FQDNs locais (catch-up após reconexão pelo watchdog).
+func (r *Reconcile) SyncRedis(ctx context.Context, pushUpdates map[string]*certmodel.CertJSON) {
 	bus := r.getBus()
 	if bus == nil {
 		return
@@ -336,63 +347,74 @@ func (r *Reconcile) SyncRedis(ctx context.Context) {
 	}
 
 	// PUSH: publish local certs that are newer than what Redis has.
-	localFQDNs, err := r.store.ScanFQDNs()
-	if err != nil {
-		slog.Warn("sync_redis scan local failed",
-			"component", "sync_redis",
-			"error", err.Error(),
-			"node_id", r.cfg.NodeID,
-		)
+	// Build the push set: incremental (only changed FQDNs) or full (reconnect catch-up).
+	var pushMap map[string]*certmodel.CertJSON
+	if pushUpdates != nil {
+		pushMap = pushUpdates
 	} else {
-		for _, fqdn := range localFQDNs {
-			source := r.table.Get(fqdn)
-			if source == "redis" {
-				continue
-			}
-
-			local, err := r.store.ReadCertJSON(fqdn)
-			if err != nil || local == nil {
-				continue
-			}
-
-			remote, _ := bus.GetCert(ctx, fqdn)
-
-			if remote != nil && local.NotAfterUnix < remote.NotAfterUnix {
-				continue
-			}
-
-			if remote != nil && remote.CertMD5 == local.CertMD5 {
-				continue
-			}
-
-			if err := bus.SetCert(ctx, fqdn, local); err != nil {
-				slog.Error("sync_redis set",
-					"component", "sync_redis",
-					"fqdn", fqdn,
-					"error", err.Error(),
-					"node_id", r.cfg.NodeID,
-				)
-				continue
-			}
-
-			if err := bus.PublishEvent(ctx, fqdn); err != nil {
-				slog.Error("sync_redis publish",
-					"component", "sync_redis",
-					"fqdn", fqdn,
-					"error", err.Error(),
-					"node_id", r.cfg.NodeID,
-				)
-				continue
-			}
-
-			slog.Info("sync_redis push",
+		localFQDNs, err := r.store.ScanFQDNs()
+		if err != nil {
+			slog.Warn("sync_redis scan local failed",
 				"component", "sync_redis",
-				"fqdn", fqdn,
-				"action", "publish",
-				"not_after", local.NotAfter,
+				"error", err.Error(),
 				"node_id", r.cfg.NodeID,
 			)
+			pushMap = map[string]*certmodel.CertJSON{}
+		} else {
+			pushMap = make(map[string]*certmodel.CertJSON, len(localFQDNs))
+			for _, fqdn := range localFQDNs {
+				local, err := r.store.ReadCertJSON(fqdn)
+				if err != nil || local == nil {
+					continue
+				}
+				pushMap[fqdn] = local
+			}
 		}
+	}
+
+	for fqdn, local := range pushMap {
+		source := r.table.Get(fqdn)
+		if source == "redis" {
+			continue
+		}
+
+		remote, _ := bus.GetCert(ctx, fqdn)
+
+		if remote != nil && local.NotAfterUnix < remote.NotAfterUnix {
+			continue
+		}
+
+		if remote != nil && remote.CertMD5 == local.CertMD5 {
+			continue
+		}
+
+		if err := bus.SetCert(ctx, fqdn, local); err != nil {
+			slog.Error("sync_redis set",
+				"component", "sync_redis",
+				"fqdn", fqdn,
+				"error", err.Error(),
+				"node_id", r.cfg.NodeID,
+			)
+			continue
+		}
+
+		if err := bus.PublishEvent(ctx, fqdn); err != nil {
+			slog.Error("sync_redis publish",
+				"component", "sync_redis",
+				"fqdn", fqdn,
+				"error", err.Error(),
+				"node_id", r.cfg.NodeID,
+			)
+			continue
+		}
+
+		slog.Info("sync_redis push",
+			"component", "sync_redis",
+			"fqdn", fqdn,
+			"action", "publish",
+			"not_after", local.NotAfter,
+			"node_id", r.cfg.NodeID,
+		)
 	}
 
 	slog.Info("sync_redis done",

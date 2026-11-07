@@ -164,7 +164,7 @@ func startRedisWatchdog(ctx context.Context, cfg *config.Config, rec *reconcile.
 		)
 		rec.SetBus(b)
 		rec.StartSubscriber(ctx)
-		rec.SyncRedis(ctx)
+		rec.SyncRedis(ctx, nil) // nil = full catch-up scan após reconexão
 		return
 	}
 }

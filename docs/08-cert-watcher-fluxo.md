@@ -24,7 +24,8 @@ boot:
   iniciar goroutine do loop de polling (ver §8.2)
   aguardar SIGINT ou SIGTERM
   cancelar contexto raiz
-  aguardar goroutines de hook (via WaitGroup — ver §11)
+  aguardar goroutine de polling (pollWg.Wait — deve preceder rec.Wait para evitar Add após Wait)
+  aguardar goroutines de hook e eventos Redis (via hookWg.Wait — ver §11)
   fechar bus Redis (se aberto)
 ```
 
@@ -81,7 +82,7 @@ para cada certificado do acme.json:
         registrar update do fqdn
 disparar_side_effects(updates)      # hooks 1 e 2, em goroutine rastreada; ver §9 e §11
 se Redis configurado:
-  sync_redis()
+  sync_redis(updates)   # PUSH incremental: somente FQDNs de updates
 ```
 
 ### 8.4 `sync_redis()` (somente se `TCERTS_REDIS_URL` definido)
@@ -96,14 +97,19 @@ para cada chave <prefix>:cert:<fqdn> no Redis:
       gravar_atomico(fqdn, remote, source="redis")
       tabela de origens[fqdn]=redis
 
-# PUSH: enviar updates locais e o que falta no Redis
-para cada fqdn local cuja origem != "redis":
+# PUSH: enviar ao Redis os certs mais novos que a cópia remota
+# Dois modos segundo o argumento pushUpdates recebido:
+#   pushUpdates != nil (chamada por sync_certs): PUSH incremental — apenas os FQDNs
+#     efetivamente alterados neste ciclo. Evita O(N) GETs/leituras quando nada mudou.
+#   pushUpdates == nil (chamada pelo watchdog de reconexão): varredura completa de
+#     todos os FQDNs locais (catch-up).
+para cada (fqdn, local) no conjunto de push:
+  se origem[fqdn] == "redis": continuar  (não repropagar; evita ping-pong)
   remote = CertJSON da chave <prefix>:cert:<fqdn> (se existir)
-  se (remote ausente) OU (local.not_after > remote.not_after):
-    se (remote existe E remote.cert_md5 == local.cert_md5):  # dedup: idêntico, não reenviar
-      continuar
-    SET <prefix>:cert:<fqdn> = local.cert_json
-    PUBLISH <prefix>:events  fqdn
+  se remote existe E local.not_after < remote.not_after: continuar
+  se remote existe E remote.cert_md5 == local.cert_md5: continuar  # dedup
+  SET <prefix>:cert:<fqdn> = local.cert_json
+  PUBLISH <prefix>:events  fqdn
 ```
 
 > As chaves do Redis **não expiram** (não há remoção de certificados expirados — requisito).
@@ -119,12 +125,14 @@ incorretos quando o prefixo tem comprimento diferente do esperado.
 ```
 SUBSCRIBE <prefix>:events
 ao receber <fqdn>:
-  remote = CertJSON da chave <prefix>:cert:<fqdn>
-  com lock(fqdn):
-    local = estado em disco do fqdn
-    se (local ausente) OU (remote.not_after > local.not_after):
-      gravar_atomico(fqdn, remote, source="redis")   # SEM hooks
-      tabela de origens[fqdn]=redis
+  despachar em goroutine rastreada (hookWg) — evita bloquear o loop do subscriber
+  e o overflow do buffer interno do go-redis (item 003.9):
+    remote = CertJSON da chave <prefix>:cert:<fqdn>
+    com lock(fqdn):
+      local = estado em disco do fqdn
+      se (local ausente) OU (remote.not_after > local.not_after):
+        gravar_atomico(fqdn, remote, source="redis")   # SEM hooks
+        tabela de origens[fqdn]=redis
 ```
 
 ### 8.6 Regras de recência e desempate (válidas em todo o sistema)
