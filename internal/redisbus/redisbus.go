@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +103,10 @@ func (b *Bus) GetAllCertKeys(ctx context.Context) ([]string, error) {
 		for _, key := range batch {
 			// Use TrimPrefix to avoid brittle magic offsets (item 3.4).
 			fqdn := strings.TrimPrefix(key, certPrefix)
+			if strings.ContainsAny(fqdn, "/\\") {
+				slog.Warn("redisbus fqdn inválido ignorado", "component", "redisbus", "key", key)
+				continue
+			}
 			keys = append(keys, fqdn)
 		}
 		if cursor == 0 {
