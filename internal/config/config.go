@@ -57,6 +57,9 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("TCERTS_HOOK_TIMEOUT is not valid: %q: %w", hookTimeoutStr, err)
 	}
+	if hookTimeout <= 0 {
+		return nil, fmt.Errorf("TCERTS_HOOK_TIMEOUT must be positive, got %q", hookTimeoutStr)
+	}
 	c.HookTimeout = hookTimeout
 
 	webhookURLs, err := parseWebhookURLs(os.Getenv("TCERTS_WEBHOOK_URL"))
@@ -70,6 +73,9 @@ func Load() (*Config, error) {
 	webhookTimeout, err := time.ParseDuration(webhookTimeoutStr)
 	if err != nil {
 		return nil, fmt.Errorf("TCERTS_WEBHOOK_TIMEOUT is not valid: %q: %w", webhookTimeoutStr, err)
+	}
+	if webhookTimeout <= 0 {
+		return nil, fmt.Errorf("TCERTS_WEBHOOK_TIMEOUT must be positive, got %q", webhookTimeoutStr)
 	}
 	c.WebhookTimeout = webhookTimeout
 
