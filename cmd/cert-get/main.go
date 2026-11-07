@@ -63,6 +63,8 @@ func main() {
 				"error", err.Error(),
 			)
 			bus = nil
+		} else {
+			defer bus.Close()
 		}
 	}
 
