@@ -18,6 +18,26 @@ import (
 	"github.com/patrickbrandao/traefik-certs/internal/config"
 )
 
+// capWriter is an io.Writer that caps writes at limit bytes; excess writes are discarded.
+type capWriter struct {
+	buf   []byte
+	limit int
+}
+
+func (c *capWriter) Write(p []byte) (int, error) {
+	rem := c.limit - len(c.buf)
+	if rem <= 0 {
+		return len(p), nil
+	}
+	if len(p) > rem {
+		p = p[:rem]
+	}
+	c.buf = append(c.buf, p...)
+	return len(p), nil
+}
+
+func (c *capWriter) String() string { return string(c.buf) }
+
 // RunHook1 executes every executable script in cfg.HookDir, passing dir and fqdn as
 // positional arguments. The provided ctx is the process context; each script also
 // gets its own per-script timeout derived from it so that both individual timeouts
@@ -70,7 +90,8 @@ func RunHook1(ctx context.Context, cfg *config.Config, fqdn, dir string) {
 			defer cancel()
 
 			cmd := exec.CommandContext(sctx, filepath.Join(cfg.HookDir, script), dir, fqdn)
-			var stdout, stderr bytes.Buffer
+			stdout := capWriter{limit: 64 * 1024}
+			stderr := capWriter{limit: 64 * 1024}
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 
@@ -179,7 +200,7 @@ func postWebhook(ctx context.Context, cfg *config.Config, fqdn, target string, b
 			)
 			continue
 		}
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -193,12 +214,16 @@ func postWebhook(ctx context.Context, cfg *config.Config, fqdn, target string, b
 			return
 		}
 
+		bodyStr := string(respBody)
+		if len(bodyStr) > 1024 {
+			bodyStr = bodyStr[:1024] + "...(truncado)"
+		}
 		slog.Error("hook2 response",
 			"component", "webhook",
 			"fqdn", fqdn,
 			"webhook_url", target,
 			"status", resp.StatusCode,
-			"body", string(respBody),
+			"body", bodyStr,
 			"attempt", attempt,
 		)
 	}

@@ -1,5 +1,8 @@
 # Report Task 003 — Revisão de bugs, falhas de execução e consumo de recursos
 
+**Status:** parcialmente resolvido — itens 4 e 9 aguardam decisão arquitetural; item 7 documentado.
+**Atualizado em:** 2026-11-07 (branch fix/problem-solver-20261107)
+
 **Data:** 2026-06-17
 **Escopo:** Revisão estática de todo o código (`cmd/`, `internal/`) procurando por: falhas que quebrem o
 software em runtime, caminhos que levem a consumo excessivo de CPU/RAM, e comportamento inconsistente
@@ -13,21 +16,21 @@ entre os fluxos (`sync_certs`, `sync_redis`, subscriber, hooks, `cert-get`).
 
 ## Resumo por severidade
 
-| # | Severidade | Categoria | Local | Problema |
-|---|-----------|-----------|-------|----------|
-| 1 | **Alta** | RAM / Logs | `internal/hooks/hooks.go:73-93` | `stdout`/`stderr` de Hook 1 bufferizados **sem limite** e logados na íntegra. |
-| 2 | **Alta** | RAM / Logs | `internal/hooks/hooks.go:182` | Corpo da resposta do webhook lido com `io.ReadAll` **sem limite**. |
-| 3 | **Alta** | CPU / I/O | `internal/config/config.go:34-39` | `TCERTS_ACME_INTERVAL` aceita `1` (ms) → polling em loop quente. |
-| 4 | **Média** | CPU / Rede | `internal/reconcile/reconcile.go:243-245`, `248-389` | `SyncRedis` completo (O(N) GETs + leituras de disco) a **cada tick**, mesmo sem mudanças. |
-| 5 | **Média** | Inconsistência | `internal/reconcile/reconcile.go:347` | PUSH usa `<=` e descarta cert re-emitido com mesmo `NotAfter` — diverge do tiebreaker de `SyncCerts`. |
-| 6 | **Média** | Shutdown / Consistência | `cmd/cert-watcher/main.go:100-119` | `SyncCerts` em voo não é aguardado no shutdown; pode `Add` no `hookWg` concorrente ao `Wait()` e gravar após o `CloseBus()`. |
-| 7 | **Média** | Consistência | `internal/certstore/certstore.go:107-133` | Conjunto de 6 arquivos gravado de forma atômica **individual**, mas não como grupo; leitor externo pode ver `cert.pem`/`privkey.pem` descasados durante rotação. |
-| 8 | **Baixa** | Robustez | `internal/redisbus/redisbus.go:122-127` | `Subscribe` sobrescreve `b.cancel` sem cancelar o anterior → vazamento de goroutine se chamado 2× no mesmo bus. |
-| 9 | **Baixa** | Vazão de eventos | `internal/redisbus/redisbus.go:147-151` | Handler do subscriber roda **síncrono** no loop de pub/sub; handler lento provoca overflow/descarte do buffer do go-redis. |
-| 10 | **Baixa** | Disco | `internal/certstore/certstore.go:82-101` | Arquivos `.tmp-*` ficam órfãos se o processo morre entre `CreateTemp` e `Rename`. |
-| 11 | **Baixa** | Dados obsoletos | `internal/certmodel/certmodel.go:28-29,164-182` | `is_currently_valid` / `seconds_to_expiry` congelam no momento da gravação. |
-| 12 | **Baixa** | Logs | `internal/reconcile/reconcile.go:142-150` | `acme.json` ausente/inválido loga em `Warn` a cada tick → poluição de log. |
-| 13 | **Nit** | Código morto | `cmd/cert-get/main.go:148-150` | `bestSource` nunca é `""` quando `best != nil`; bloco inalcançável. |
+| # | Severidade | Categoria | Local | Problema | Status |
+|---|-----------|-----------|-------|----------|--------|
+| 1 | **Alta** | RAM / Logs | `internal/hooks/hooks.go:73-93` | `stdout`/`stderr` de Hook 1 bufferizados **sem limite** e logados na íntegra. | ✅ corrigido |
+| 2 | **Alta** | RAM / Logs | `internal/hooks/hooks.go:182` | Corpo da resposta do webhook lido com `io.ReadAll` **sem limite**. | ✅ corrigido |
+| 3 | **Alta** | CPU / I/O | `internal/config/config.go:34-39` | `TCERTS_ACME_INTERVAL` aceita `1` (ms) → polling em loop quente. | ✅ corrigido (mínimo 100 ms) |
+| 4 | **Média** | CPU / Rede | `internal/reconcile/reconcile.go:243-245`, `248-389` | `SyncRedis` completo (O(N) GETs + leituras de disco) a **cada tick**, mesmo sem mudanças. | 🔲 bloqueado — aguarda decisão arquitetural (timer separado) |
+| 5 | **Média** | Inconsistência | `internal/reconcile/reconcile.go:347` | PUSH usa `<=` e descarta cert re-emitido com mesmo `NotAfter` — diverge do tiebreaker de `SyncCerts`. | ✅ corrigido (`<` + cert_md5 inalcançável corrigido) |
+| 6 | **Média** | Shutdown / Consistência | `cmd/cert-watcher/main.go:100-119` | `SyncCerts` em voo não é aguardado no shutdown; pode `Add` no `hookWg` concorrente ao `Wait()` e gravar após o `CloseBus()`. | ✅ corrigido (pollWg) |
+| 7 | **Média** | Consistência | `internal/certstore/certstore.go:107-133` | Conjunto de 6 arquivos gravado de forma atômica **individual**, mas não como grupo; leitor externo pode ver `cert.pem`/`privkey.pem` descasados durante rotação. | ✅ documentado (cert.json já é último; comentário adicionado) |
+| 8 | **Baixa** | Robustez | `internal/redisbus/redisbus.go:122-127` | `Subscribe` sobrescreve `b.cancel` sem cancelar o anterior → vazamento de goroutine se chamado 2× no mesmo bus. | ✅ corrigido |
+| 9 | **Baixa** | Vazão de eventos | `internal/redisbus/redisbus.go:147-151` | Handler do subscriber roda **síncrono** no loop de pub/sub; handler lento provoca overflow/descarte do buffer do go-redis. | 🔲 bloqueado — requer worker pool; comportamento documentado |
+| 10 | **Baixa** | Disco | `internal/certstore/certstore.go:82-101` | Arquivos `.tmp-*` ficam órfãos se o processo morre entre `CreateTemp` e `Rename`. | ✅ corrigido (CleanupOrphans no boot) |
+| 11 | **Baixa** | Dados obsoletos | `internal/certmodel/certmodel.go:28-29,164-182` | `is_currently_valid` / `seconds_to_expiry` congelam no momento da gravação. | ✅ documentado (docs/05) |
+| 12 | **Baixa** | Logs | `internal/reconcile/reconcile.go:142-150` | `acme.json` ausente/inválido loga em `Warn` a cada tick → poluição de log. | ✅ corrigido (atomic.Bool) |
+| 13 | **Nit** | Código morto | `cmd/cert-get/main.go:148-150` | `bestSource` nunca é `""` quando `best != nil`; bloco inalcançável. | ✅ corrigido |
 
 ---
 

@@ -145,10 +145,6 @@ func findBestCert(ctx context.Context, store *certstore.Store, bus *redisbus.Bus
 		}
 	}
 
-	if best != nil && bestSource == "" {
-		bestSource = "local"
-	}
-
 	if best == nil && bus != nil {
 		// Last-resort: look up by sanitized wildcard key directly.
 		sanitized := certmodel.SanitizeFQDN(targetFQDN)

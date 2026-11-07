@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/patrickbrandao/traefik-certs/internal/certmodel"
@@ -125,6 +126,9 @@ func (s *Store) writeCertFilesToDir(dir string, cj *certmodel.CertJSON) error {
 	if err != nil {
 		return fmt.Errorf("marshal cert.json: %w", err)
 	}
+	// cert.json é escrito por último: é o "sinal de prontidão" que consumidores
+	// monitoram. Uma falha parcial deixa cert.json ausente/antigo em vez de expor
+	// arquivos PEM inconsistentes entre si.
 	if err := s.WriteAtomic(dir, "cert.json", cjBytes, 0600); err != nil {
 		return err
 	}
@@ -140,4 +144,28 @@ func (s *Store) WriteCertFiles(fqdn string, cj *certmodel.CertJSON) error {
 // WriteCertFilesFlat writes all certificate files into an arbitrary flat directory.
 func (s *Store) WriteCertFilesFlat(dir string, cj *certmodel.CertJSON) error {
 	return s.writeCertFilesToDir(dir, cj)
+}
+
+// CleanupOrphans remove arquivos .tmp-* deixados por uma execução anterior
+// interrompida. Deve ser chamado uma vez na inicialização, antes de qualquer escrita.
+func (s *Store) CleanupOrphans() {
+	dirs, err := os.ReadDir(s.saveDir)
+	if err != nil {
+		return
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		sub := filepath.Join(s.saveDir, d.Name())
+		files, err := os.ReadDir(sub)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if !f.IsDir() && strings.HasPrefix(f.Name(), ".tmp-") {
+				os.Remove(filepath.Join(sub, f.Name()))
+			}
+		}
+	}
 }

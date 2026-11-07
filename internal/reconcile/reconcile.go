@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/patrickbrandao/traefik-certs/internal/acme"
@@ -65,12 +66,13 @@ func (st *SourceTable) Get(fqdn string) string {
 // a reconnect watchdog can call SetBus safely (item 2.1/2.5). hookWg tracks
 // in-flight hook goroutines for graceful shutdown (item 1.4).
 type Reconcile struct {
-	cfg    *config.Config
-	store  *certstore.Store
-	busMu  sync.RWMutex
-	bus    *redisbus.Bus
-	table  *SourceTable
-	hookWg sync.WaitGroup
+	cfg           *config.Config
+	store         *certstore.Store
+	busMu         sync.RWMutex
+	bus           *redisbus.Bus
+	table         *SourceTable
+	hookWg        sync.WaitGroup
+	acmeErrLogged atomic.Bool
 }
 
 func New(cfg *config.Config, store *certstore.Store, bus *redisbus.Bus, table *SourceTable) *Reconcile {
@@ -140,14 +142,17 @@ func (r *Reconcile) SyncCerts(ctx context.Context) {
 
 	entries, err := acme.ParseACME(r.cfg.AcmeJSONPath)
 	if err != nil {
-		slog.Warn("sync_certs skip, cannot parse acme.json",
-			"component", "sync_certs",
-			"path", r.cfg.AcmeJSONPath,
-			"error", err.Error(),
-			"node_id", r.cfg.NodeID,
-		)
+		if r.acmeErrLogged.CompareAndSwap(false, true) {
+			slog.Warn("sync_certs skip, cannot parse acme.json",
+				"component", "sync_certs",
+				"path", r.cfg.AcmeJSONPath,
+				"error", err.Error(),
+				"node_id", r.cfg.NodeID,
+			)
+		}
 		return
 	}
+	r.acmeErrLogged.Store(false)
 
 	slog.Debug("sync_certs parsed entries",
 		"component", "sync_certs",
@@ -344,7 +349,7 @@ func (r *Reconcile) SyncRedis(ctx context.Context) {
 
 			remote, _ := bus.GetCert(ctx, fqdn)
 
-			if remote != nil && local.NotAfterUnix <= remote.NotAfterUnix {
+			if remote != nil && local.NotAfterUnix < remote.NotAfterUnix {
 				continue
 			}
 

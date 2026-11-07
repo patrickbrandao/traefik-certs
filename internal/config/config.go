@@ -33,8 +33,8 @@ func Load() (*Config, error) {
 
 	intervalMsStr := envOrDefault("TCERTS_ACME_INTERVAL", "3000")
 	intervalMs, err := strconv.Atoi(intervalMsStr)
-	if err != nil || intervalMs < 1 {
-		return nil, fmt.Errorf("TCERTS_ACME_INTERVAL must be a positive integer, got %q", intervalMsStr)
+	if err != nil || intervalMs < 100 {
+		return nil, fmt.Errorf("TCERTS_ACME_INTERVAL must be >= 100 (ms), got %q", intervalMsStr)
 	}
 	c.AcmeInterval = time.Duration(intervalMs) * time.Millisecond
 
