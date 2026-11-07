@@ -162,6 +162,14 @@ func (r *Reconcile) SyncCerts(ctx context.Context) {
 
 	dedup := make(map[string]*acme.AcmeEntry)
 	for i, e := range entries {
+		if _, exists := dedup[e.FQDN]; exists {
+			slog.Warn("sync_certs fqdn duplicado em múltiplos resolvers",
+				"component", "sync_certs",
+				"fqdn", e.FQDN,
+				"resolver", e.Resolver,
+				"node_id", r.cfg.NodeID,
+			)
+		}
 		dedup[e.FQDN] = &entries[i]
 	}
 
