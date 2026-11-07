@@ -33,8 +33,8 @@ func Load() (*Config, error) {
 
 	intervalMsStr := envOrDefault("TCERTS_ACME_INTERVAL", "3000")
 	intervalMs, err := strconv.Atoi(intervalMsStr)
-	if err != nil || intervalMs < 1 {
-		return nil, fmt.Errorf("TCERTS_ACME_INTERVAL must be a positive integer, got %q", intervalMsStr)
+	if err != nil || intervalMs < 100 {
+		return nil, fmt.Errorf("TCERTS_ACME_INTERVAL must be >= 100 (ms), got %q", intervalMsStr)
 	}
 	c.AcmeInterval = time.Duration(intervalMs) * time.Millisecond
 
@@ -57,6 +57,9 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("TCERTS_HOOK_TIMEOUT is not valid: %q: %w", hookTimeoutStr, err)
 	}
+	if hookTimeout <= 0 {
+		return nil, fmt.Errorf("TCERTS_HOOK_TIMEOUT must be positive, got %q", hookTimeoutStr)
+	}
 	c.HookTimeout = hookTimeout
 
 	webhookURLs, err := parseWebhookURLs(os.Getenv("TCERTS_WEBHOOK_URL"))
@@ -70,6 +73,9 @@ func Load() (*Config, error) {
 	webhookTimeout, err := time.ParseDuration(webhookTimeoutStr)
 	if err != nil {
 		return nil, fmt.Errorf("TCERTS_WEBHOOK_TIMEOUT is not valid: %q: %w", webhookTimeoutStr, err)
+	}
+	if webhookTimeout <= 0 {
+		return nil, fmt.Errorf("TCERTS_WEBHOOK_TIMEOUT must be positive, got %q", webhookTimeoutStr)
 	}
 	c.WebhookTimeout = webhookTimeout
 

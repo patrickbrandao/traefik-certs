@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +103,10 @@ func (b *Bus) GetAllCertKeys(ctx context.Context) ([]string, error) {
 		for _, key := range batch {
 			// Use TrimPrefix to avoid brittle magic offsets (item 3.4).
 			fqdn := strings.TrimPrefix(key, certPrefix)
+			if strings.ContainsAny(fqdn, "/\\") {
+				slog.Warn("redisbus fqdn inválido ignorado", "component", "redisbus", "key", key)
+				continue
+			}
 			keys = append(keys, fqdn)
 		}
 		if cursor == 0 {
@@ -116,10 +121,20 @@ func (b *Bus) PublishEvent(ctx context.Context, fqdn string) error {
 }
 
 // Subscribe starts the subscriber goroutine in the background.
+// Se já houver uma goroutine anterior rodando (re-subscribe em reconexão), ela é
+// cancelada e aguardada antes da nova ser iniciada, evitando assinaturas duplas (003.8).
 // An inner context derived from ctx is created and its cancel function is
 // stored in b.cancel, so that Close() can stop the goroutine independently
 // of the caller's context lifecycle (item 1.2).
 func (b *Bus) Subscribe(ctx context.Context, handler func(fqdn string)) {
+	b.mu.Lock()
+	oldCancel := b.cancel
+	b.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+		b.wg.Wait()
+	}
+
 	innerCtx, cancel := context.WithCancel(ctx)
 
 	b.mu.Lock()

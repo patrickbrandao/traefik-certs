@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +53,7 @@ func main() {
 	}
 
 	store := certstore.New(cfg.SaveDir)
+	store.CleanupOrphans()
 	table := reconcile.NewSourceTable()
 	if err := table.LoadFromDisk(store); err != nil {
 		slog.Warn("failed to load source table from disk",
@@ -97,7 +99,10 @@ func main() {
 	}
 
 	// Polling loop: WaitAndContinue respects ctx so shutdown is immediate (item 1.3).
+	var pollWg sync.WaitGroup
+	pollWg.Add(1)
 	go func() {
+		defer pollWg.Done()
 		for {
 			if !reconcile.WaitAndContinue(ctx, cfg.AcmeInterval) {
 				return
@@ -112,6 +117,10 @@ func main() {
 		"node_id", cfg.NodeID,
 	)
 	cancel()
+
+	// Aguarda a goroutine de polling para garantir que nenhum SyncCerts adicional
+	// chame hookWg.Add após hookWg.Wait retornar (item 003.6).
+	pollWg.Wait()
 
 	// Wait for in-flight hook goroutines before closing (item 1.4).
 	rec.Wait()
@@ -155,7 +164,7 @@ func startRedisWatchdog(ctx context.Context, cfg *config.Config, rec *reconcile.
 		)
 		rec.SetBus(b)
 		rec.StartSubscriber(ctx)
-		rec.SyncRedis(ctx)
+		rec.SyncRedis(ctx, nil) // nil = full catch-up scan após reconexão
 		return
 	}
 }

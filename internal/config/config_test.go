@@ -132,6 +132,38 @@ func TestLoad_InvalidHookTimeout(t *testing.T) {
 	}
 }
 
+func TestLoad_HookTimeout_Zero(t *testing.T) {
+	setEnv(t, "TCERTS_HOOK_TIMEOUT", "0s")
+	_, err := config.Load()
+	if err == nil {
+		t.Error("expected error for zero TCERTS_HOOK_TIMEOUT")
+	}
+}
+
+func TestLoad_HookTimeout_Negative(t *testing.T) {
+	setEnv(t, "TCERTS_HOOK_TIMEOUT", "-1s")
+	_, err := config.Load()
+	if err == nil {
+		t.Error("expected error for negative TCERTS_HOOK_TIMEOUT")
+	}
+}
+
+func TestLoad_WebhookTimeout_Zero(t *testing.T) {
+	setEnv(t, "TCERTS_WEBHOOK_TIMEOUT", "0")
+	_, err := config.Load()
+	if err == nil {
+		t.Error("expected error for zero TCERTS_WEBHOOK_TIMEOUT")
+	}
+}
+
+func TestLoad_SmallAcmeInterval(t *testing.T) {
+	setEnv(t, "TCERTS_ACME_INTERVAL", "50")
+	_, err := config.Load()
+	if err == nil {
+		t.Error("expected error for TCERTS_ACME_INTERVAL below minimum (100 ms)")
+	}
+}
+
 func TestLoad_InvalidWebhookRetries(t *testing.T) {
 	setEnv(t, "TCERTS_WEBHOOK_RETRIES", "-1")
 	_, err := config.Load()

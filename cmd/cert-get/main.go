@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/patrickbrandao/traefik-certs/internal/certmodel"
 	"github.com/patrickbrandao/traefik-certs/internal/certstore"
@@ -20,6 +21,11 @@ func main() {
 
 	fqdn := os.Args[1]
 	destDir := os.Args[2]
+
+	if strings.ContainsAny(fqdn, "/\\") {
+		fmt.Fprintln(os.Stderr, "error: fqdn inválido (contém separador de caminho)")
+		os.Exit(1)
+	}
 
 	if _, err := os.Stat(destDir); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "destination directory does not exist: %s\n", destDir)
@@ -57,6 +63,8 @@ func main() {
 				"error", err.Error(),
 			)
 			bus = nil
+		} else {
+			defer bus.Close()
 		}
 	}
 
@@ -143,10 +151,6 @@ func findBestCert(ctx context.Context, store *certstore.Store, bus *redisbus.Bus
 				checkCert(cj, "redis")
 			}
 		}
-	}
-
-	if best != nil && bestSource == "" {
-		bestSource = "local"
 	}
 
 	if best == nil && bus != nil {
